@@ -1,0 +1,93 @@
+import java.util.Arrays;
+
+public class RegresionLineal {
+    // ===== Atributos requeridos =====
+    private double[] weights;   // w1..wd (solo las pendientes)
+    private double bias;        // término independiente
+
+    // Infraestructura
+    private final boolean usarEscalado;
+    private EscaladorEstandar escalador;
+
+    public RegresionLineal(boolean usarEscalado) {
+        this.usarEscalado = usarEscalado;
+        if (usarEscalado) escalador = new EscaladorEstandar();
+    }
+
+    // ----- getters de la rúbrica -----
+    public double[] getWeights() { return Arrays.copyOf(weights, weights.length); }
+    public double getBias() { return bias; }
+
+    // ===== Método requerido: data_scaling() =====
+    // Escala X y guarda los parámetros para reusar en predict()
+    public double[][] data_scaling(double[][] X) {
+        if (!usarEscalado) return X;
+        return escalador.fitTransform(X);
+    }
+
+    // ===== Método requerido: fit() =====
+    // Entrena con Ecuación Normal; si hay singularidad, cae a gradiente
+    public void fit(double[][] X, double[] y) {
+        if (usarEscalado && escalador == null) { escalador = new EscaladorEstandar(); X = escalador.fitTransform(X); }
+
+        int n = X.length, d = X[0].length;
+        // Construir Xb con columna de 1s para el bias
+        double[][] Xb = new double[n][d+1];
+        for (int i = 0; i < n; i++) { Xb[i][0] = 1.0; for (int j = 0; j < d; j++) Xb[i][j+1] = X[i][j]; }
+
+        try {
+            double[][] Xt = OperacionesMatrices.transpuesta(Xb);
+            double[][] XtX = OperacionesMatrices.multiplicar(Xt, Xb);
+            double[][] inv = OperacionesMatrices.inversa(XtX);
+
+            double[][] Xt_y = new double[d+1][1];
+            for (int j = 0; j < d+1; j++) {
+                double s = 0; for (int i = 0; i < n; i++) s += Xt[j][i] * y[i];
+                Xt_y[j][0] = s;
+            }
+            double[][] wcol = OperacionesMatrices.multiplicar(inv, Xt_y);
+
+            bias = wcol[0][0];
+            weights = new double[d];
+            for (int j = 0; j < d; j++) weights[j] = wcol[j+1][0];
+        } catch (RuntimeException e) {
+            // Fallback: gradiente descendente
+            double[] w = new double[d+1]; // incluye bias
+            double tasa = 0.05; int iters = 3000;
+            for (int t = 0; t < iters; t++) {
+                double[] grad = new double[d+1];
+                for (int i = 0; i < n; i++) {
+                    double yhat = 0; for (int j = 0; j < d+1; j++) yhat += Xb[i][j] * w[j];
+                    double err = yhat - y[i];
+                    for (int j = 0; j < d+1; j++) grad[j] += err * Xb[i][j];
+                }
+                for (int j = 0; j < d+1; j++) w[j] -= (tasa / n) * grad[j];
+            }
+            bias = w[0];
+            weights = new double[d];
+            for (int j = 0; j < d; j++) weights[j] = w[j+1];
+        }
+    }
+
+    // ===== Método requerido: predict() =====
+    public double[] predict(double[][] Xraw) {
+        double[][] X = (usarEscalado && escalador != null) ? escalador.transform(Xraw) : Xraw;
+        int n = X.length, d = X[0].length;
+        double[] yhat = new double[n];
+        for (int i = 0; i < n; i++) {
+            double suma = bias;
+            for (int j = 0; j < d; j++) suma += weights[j] * X[i][j];
+            yhat[i] = suma;
+        }
+        return yhat;
+    }
+
+    // ===== Método requerido: score() =====
+    // Devuelve MSE por defecto (error de predicciones)
+    public double score(double[][] X, double[] y) {
+        double[] yhat = predict(X);
+        double mse = 0;
+        for (int i = 0; i < y.length; i++) { double e = yhat[i] - y[i]; mse += e*e; }
+        return mse / y.length;
+    }
+}
